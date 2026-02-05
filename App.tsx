@@ -1,11 +1,11 @@
 
 import React, { useState } from 'react';
-import Sidebar from './components/Sidebar';
-import KnowledgeBase from './components/KnowledgeBase';
-import Workbench from './components/Workbench';
-import Evaluation from './components/Evaluation';
-import Settings from './components/Settings';
-import { AppView } from './types';
+import Sidebar from './components/Sidebar.tsx';
+import KnowledgeBase from './components/KnowledgeBase.tsx';
+import Workbench from './components/Workbench.tsx';
+import Evaluation from './components/Evaluation.tsx';
+import Settings from './components/Settings.tsx';
+import { AppView } from './types.ts';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.WORKBENCH);

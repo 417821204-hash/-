@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Database, FileEdit, ClipboardCheck, Settings } from 'lucide-react';
-import { AppView, KnowledgeItem, Project, Template, PolicyItem } from './types';
+import { AppView, KnowledgeItem, Project, Template, PolicyItem } from './types.ts';
 
 export const NAVIGATION_ITEMS = [
   { id: AppView.WORKBENCH, label: '方案工作台', icon: <FileEdit className="w-5 h-5" /> },

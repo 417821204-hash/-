@@ -1,21 +1,20 @@
 
 import React, { useState, useEffect } from 'react';
 import { Sparkles, Layout, Check, Loader2, Database, X, FileText, Globe, Search, Settings2, Plus, Edit3, Save, Upload } from 'lucide-react';
-import { geminiService } from '../services/geminiService';
-import { DEFAULT_TEMPLATES, MOCK_KNOWLEDGE } from '../constants';
-import { KnowledgeItem, Template } from '../types';
+import { geminiService } from '../services/geminiService.ts';
+import { DEFAULT_TEMPLATES, MOCK_KNOWLEDGE } from '../constants.tsx';
+import { KnowledgeItem, Template } from '../types.ts';
 
 const Workbench: React.FC = () => {
+  // ... 保持原有逻辑不变
   const [demand, setDemand] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   
-  // Workflow States
   const [isKBModalOpen, setIsKBModalOpen] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<KnowledgeItem[]>([]);
   const [kbSearchTerm, setKbSearchTerm] = useState('');
 
-  // Template States
   const [templates, setTemplates] = useState<Template[]>(DEFAULT_TEMPLATES);
   const [selectedTemplateId, setSelectedTemplateId] = useState(DEFAULT_TEMPLATES[0].id);
   const [isEditingTemplate, setIsEditingTemplate] = useState(false);
