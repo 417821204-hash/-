@@ -1,0 +1,8 @@
+{
+  "name": "鲸·方案智造平台",
+  "description": "面向企业售前与解决方案场景的专业级AI系统，支持自动生成标准化项目方案、知识库管理、方案评估与优化。",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
