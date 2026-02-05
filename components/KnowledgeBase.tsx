@@ -1,284 +1,379 @@
 
-import React, { useState } from 'react';
-import { Search, Plus, Filter, FileText, Download, Trash2, Tag, ShieldCheck, Link as LinkIcon, Globe, Loader2, CheckCircle2, BookMarked, Sparkles, TrendingUp, ChevronRight, Zap } from 'lucide-react';
+import React, { useState, useRef, useMemo } from 'react';
+import { 
+  Search, Plus, FileText, Download, Trash2, ShieldCheck, 
+  X, FolderPlus, Folder, ChevronRight, Upload, MoreHorizontal,
+  FileBox, ExternalLink, Loader2, BookMarked, Sparkles, AlignLeft,
+  RotateCcw, History, ClipboardList, Info, ArrowLeftRight, Trash,
+  AlertCircle, CheckCircle2
+} from 'lucide-react';
 import { MOCK_KNOWLEDGE, MOCK_POLICIES } from '../constants';
-import { PolicyItem } from '../types';
+import { KnowledgeItem, AuditLog } from '../types';
 import { geminiService } from '../services/geminiService';
 
 const KnowledgeBase: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'standard' | 'policy'>('standard');
+  // 核心视图切换：标准库 | 政策库 | 回收站 | 审计日志
+  const [viewMode, setViewMode] = useState<'standard' | 'policy' | 'recycle' | 'audit'>('standard');
   const [searchTerm, setSearchTerm] = useState('');
-  const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
-  const [urlInput, setUrlInput] = useState('');
-  const [importing, setImporting] = useState(false);
-  const [importStep, setImportStep] = useState(0);
+  
+  // 数据仓库
+  const [items, setItems] = useState<KnowledgeItem[]>(() => {
+    const folder1: KnowledgeItem = {
+      id: 'f-1', name: '2026年度投标素材', type: 'FOLDER', domain: '通用',
+      scenario: '管理', version: '-', updateTime: '2026-02-01', securityLevel: '内部', size: '-', author: 'System'
+    };
+    return [folder1, ...MOCK_KNOWLEDGE];
+  });
 
-  // Crawler Simulation for Policy Library
-  const [isCrawling, setIsCrawling] = useState(false);
-  const [selectedPolicy, setSelectedPolicy] = useState<PolicyItem | null>(null);
-  const [policyAnalysis, setPolicyAnalysis] = useState<string | null>(null);
+  const [logs, setLogs] = useState<AuditLog[]>([]);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [previewItem, setPreviewItem] = useState<KnowledgeItem | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
-  const handleUrlImport = () => {
-    if (!urlInput) return;
-    setImporting(true);
-    setImportStep(1);
-    setTimeout(() => setImportStep(2), 1500);
-    setTimeout(() => setImportStep(3), 3000);
-    setTimeout(() => {
-      setImporting(false);
-      setIsUrlModalOpen(false);
-      setUrlInput('');
-      setImportStep(0);
-      alert('网页知识已成功接入向量数据库');
-    }, 4500);
+  // 移动文件状态
+  const [movingItem, setMovingItem] = useState<KnowledgeItem | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 辅助函数：记录审计日志 (KA-21)
+  const logAction = (action: AuditLog['action'], target: KnowledgeItem, before?: string, after?: string) => {
+    const newLog: AuditLog = {
+      id: `log-${Date.now()}`,
+      userId: 'U-001',
+      userName: 'Ginny Xie',
+      action,
+      targetId: target.id,
+      targetName: target.name,
+      timestamp: new Date().toLocaleString(),
+      beforeState: before,
+      afterState: after,
+      ip: '10.12.34.112'
+    };
+    setLogs(prev => [newLog, ...prev]);
   };
 
-  const handleCrawlerSync = () => {
-    setIsCrawling(true);
-    setTimeout(() => {
-      setIsCrawling(false);
-      alert('已完成 12 家部委官方网站的政策文件检索，更新 3 项匹配当前业务领域的政策。');
-    }, 3000);
+  // 逻辑计算：过滤当前视图的文件
+  const visibleItems = useMemo(() => {
+    return items.filter(item => {
+      const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesFolder = item.parentFolderId === (currentFolderId || undefined);
+      
+      if (viewMode === 'recycle') return item.isDeleted && matchesSearch;
+      if (viewMode === 'standard') return !item.isDeleted && matchesFolder && matchesSearch;
+      return false;
+    });
+  }, [items, searchTerm, currentFolderId, viewMode]);
+
+  const breadcrumbs = useMemo(() => {
+    const path = [];
+    let currentId = currentFolderId;
+    while (currentId) {
+      const folder = items.find(i => i.id === currentId);
+      if (folder) {
+        path.unshift(folder);
+        currentId = folder.parentFolderId || null;
+      } else {
+        break;
+      }
+    }
+    return path;
+  }, [currentFolderId, items]);
+
+  // 操作处理：上传 (KA-16)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploadProgress(10);
+    
+    for (const file of Array.from(files)) {
+      const newItem: KnowledgeItem = {
+        id: `up-${Date.now()}-${Math.random()}`,
+        name: file.name,
+        type: (file.name.split('.').pop()?.toUpperCase() as any) || 'DOCX',
+        domain: '待分类',
+        scenario: '新上传',
+        version: 'V1.0',
+        updateTime: new Date().toISOString().split('T')[0],
+        securityLevel: '内部',
+        size: `${(file.size / (1024 * 1024)).toFixed(2)}MB`,
+        author: 'Ginny Xie',
+        parentFolderId: currentFolderId || undefined,
+        content: `[文件原文内容解析完毕]`
+      };
+      setItems(prev => [newItem, ...prev]);
+      logAction('UPLOAD', newItem);
+    }
+    setUploadProgress(100);
+    setTimeout(() => setUploadProgress(null), 500);
   };
 
-  const handleAnalyzePolicy = async (policy: PolicyItem) => {
-    setSelectedPolicy(policy);
-    setPolicyAnalysis(null);
-    setIsAnalyzing(true);
-    try {
-      const result = await geminiService.analyzePolicy(policy.name);
-      setPolicyAnalysis(result || null);
-    } catch (e) {
-      setPolicyAnalysis("解析失败。");
-    } finally {
-      setIsAnalyzing(false);
+  // 操作处理：逻辑删除 (KA-25)
+  const handleSoftDelete = (item: KnowledgeItem) => {
+    setItems(prev => prev.map(i => i.id === item.id ? { 
+      ...i, 
+      isDeleted: true, 
+      deletedAt: new Date().toLocaleString(),
+      originalParentId: i.parentFolderId 
+    } : i));
+    logAction('DELETE', item, 'Active', 'Recycle Bin');
+  };
+
+  // 操作处理：恢复文件 (KA-27)
+  const handleRestore = (item: KnowledgeItem) => {
+    setItems(prev => prev.map(i => i.id === item.id ? { 
+      ...i, 
+      isDeleted: false, 
+      parentFolderId: i.originalParentId 
+    } : i));
+    logAction('RESTORE', item, 'Recycle Bin', 'Active');
+  };
+
+  // 操作处理：永久删除 (KA-28)
+  const handlePermanentDelete = (item: KnowledgeItem) => {
+    if (!confirm(`确定永久删除 ${item.name} 吗？此操作不可恢复。`)) return;
+    setItems(prev => prev.filter(i => i.id !== item.id));
+    logAction('PERMANENT_DELETE', item);
+  };
+
+  // 操作处理：移动文件 (KA-31)
+  const handleMoveTo = (targetFolderId: string | null) => {
+    if (!movingItem) return;
+    const oldParent = items.find(i => i.id === movingItem.parentFolderId)?.name || '根目录';
+    const newParent = items.find(i => i.id === targetFolderId)?.name || '根目录';
+
+    setItems(prev => prev.map(i => i.id === movingItem.id ? { ...i, parentFolderId: targetFolderId || undefined } : i));
+    logAction('MOVE', movingItem, oldParent, newParent);
+    setMovingItem(null);
+  };
+
+  const getIcon = (type: string) => {
+    switch (type) {
+      case 'FOLDER': return <Folder className="w-6 h-6 text-blue-500 fill-blue-500/20" />;
+      case 'PDF': return <FileText className="w-6 h-6 text-red-500" />;
+      case 'DOCX': return <FileText className="w-6 h-6 text-blue-600" />;
+      case 'POLICY': return <BookMarked className="w-6 h-6 text-indigo-600" />;
+      default: return <FileText className="w-6 h-6 text-slate-400" />;
     }
   };
 
   return (
-    <div className="space-y-6">
-      {/* Policy Analysis Modal Overlay */}
-      {selectedPolicy && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-4">
-          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col h-[80vh] animate-in zoom-in-95">
-            <div className="p-8 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
-              <div className="flex gap-4">
-                <div className="w-14 h-14 bg-red-600 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-red-100">
-                  <BookMarked className="w-7 h-7" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-black text-slate-900 leading-tight">{selectedPolicy.name}</h3>
-                  <div className="flex gap-3 mt-2">
-                    <span className="text-[10px] font-black bg-white border border-slate-200 px-2 py-0.5 rounded text-red-600 uppercase tracking-widest">{selectedPolicy.authority}</span>
-                    <span className="text-[10px] font-black bg-white border border-slate-200 px-2 py-0.5 rounded text-slate-500 uppercase tracking-widest">{selectedPolicy.version}</span>
-                  </div>
-                </div>
-              </div>
-              <button onClick={() => setSelectedPolicy(null)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
-                <X className="w-6 h-6 text-slate-400" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-8 prose prose-slate max-w-none">
-              {isAnalyzing ? (
-                <div className="h-full flex flex-col items-center justify-center space-y-4">
-                  <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
-                  <p className="text-slate-500 font-bold animate-pulse">AI 政策分析专家正在深度研读并拆解条款...</p>
-                </div>
-              ) : (
-                <div className="whitespace-pre-wrap font-medium text-slate-700 leading-relaxed text-sm">
-                  {policyAnalysis}
-                </div>
-              )}
-            </div>
-            <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
-              <button className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-black">
-                <Download className="w-4 h-4" /> 下载政策原文
-              </button>
-              <button className="flex-1 py-4 bg-white border border-slate-200 text-slate-900 rounded-2xl font-black text-sm hover:bg-slate-100">
-                引用到工作台
-              </button>
-            </div>
-          </div>
+    <div className="flex flex-col h-full space-y-4 animate-in fade-in">
+      <input type="file" ref={fileInputRef} onChange={handleFileUpload} multiple className="hidden" />
+
+      {/* 顶部导航与搜索 (KA-4.2) */}
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+          <input 
+            type="text" 
+            placeholder="搜索资产文件名或审计关键字..."
+            className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-xl font-bold text-sm outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
-      )}
-
-      <header className="flex justify-between items-end">
-        <div>
-          <h2 className="text-2xl font-black text-slate-900 tracking-tight">知识资产库</h2>
-          <div className="flex gap-6 mt-4 border-b border-slate-200">
-            <button 
-              onClick={() => setActiveTab('standard')}
-              className={`pb-3 text-sm font-black transition-all relative ${activeTab === 'standard' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
-            >
-              企业资料库
-              {activeTab === 'standard' && <div className="absolute bottom-0 left-0 w-full h-1 bg-blue-600 rounded-t-full" />}
-            </button>
-            <button 
-              onClick={() => setActiveTab('policy')}
-              className={`pb-3 text-sm font-black transition-all relative flex items-center gap-2 ${activeTab === 'policy' ? 'text-red-600' : 'text-slate-400 hover:text-slate-600'}`}
-            >
-              国家政策库
-              <span className="bg-red-50 text-red-500 text-[10px] px-1.5 py-0.5 rounded-full animate-pulse border border-red-100">实时同步</span>
-              {activeTab === 'policy' && <div className="absolute bottom-0 left-0 w-full h-1 bg-red-600 rounded-t-full" />}
-            </button>
-          </div>
-        </div>
-        <div className="flex gap-3 pb-2">
-          {activeTab === 'standard' ? (
-            <>
-              <button 
-                onClick={() => setIsUrlModalOpen(true)}
-                className="bg-white text-slate-700 border border-slate-200 px-5 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm uppercase"
-              >
-                <LinkIcon className="w-3.5 h-3.5 text-blue-600" />
-                导入 URL
-              </button>
-              <button className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 uppercase">
-                <Plus className="w-4 h-4" />
-                上传资料
-              </button>
-            </>
-          ) : (
-            <button 
-              onClick={handleCrawlerSync}
-              disabled={isCrawling}
-              className="bg-red-600 text-white px-6 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 hover:bg-red-700 transition-all shadow-lg shadow-red-200 uppercase"
-            >
-              {isCrawling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-              {isCrawling ? '全网同步中...' : '同步部委最新政策'}
-            </button>
-          )}
-        </div>
-      </header>
-
-      {/* URL Import Modal (Standard KB only) */}
-      {isUrlModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-8 text-center">
-              {importing ? (
-                <div className="py-12 space-y-6">
-                  <Loader2 className="w-16 h-16 text-blue-600 animate-spin mx-auto" />
-                  <p className="text-lg font-black">{importStep === 1 ? '抓取正文中...' : importStep === 2 ? '语义分割中...' : '向量入库中...'}</p>
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  <h3 className="text-xl font-black">导入 Web 知识</h3>
-                  <input 
-                    type="url" 
-                    placeholder="粘贴产品介绍 URL..."
-                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none"
-                    value={urlInput}
-                    onChange={(e) => setUrlInput(e.target.value)}
-                  />
-                  <button onClick={handleUrlImport} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black">立即导入</button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Recommended for you (Policy Library only) */}
-      {activeTab === 'policy' && (
-        <section className="animate-in slide-in-from-top-4 duration-500">
-          <div className="flex items-center gap-2 mb-4">
-            <Sparkles className="w-4 h-4 text-amber-500" />
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">智能为您推荐</h3>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {MOCK_POLICIES.filter(p => p.recommendReason).map(p => (
-              <div key={p.id} className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex gap-4 hover:border-red-400 transition-all cursor-pointer group" onClick={() => handleAnalyzePolicy(p)}>
-                <div className="w-12 h-12 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center shrink-0 group-hover:bg-red-600 group-hover:text-white transition-all">
-                  <BookMarked className="w-6 h-6" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-bold text-slate-900 text-sm line-clamp-1">{p.name}</h4>
-                  <p className="text-[10px] text-amber-600 font-black mt-1 flex items-center gap-1">
-                    <TrendingUp className="w-3 h-3" /> 推荐理由：{p.recommendReason}
-                  </p>
-                </div>
-                <ChevronRight className="w-5 h-5 text-slate-300 self-center" />
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Main List */}
-      <div className="space-y-4">
-        {/* Toolbar */}
-        <div className="flex gap-4 items-center bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder={activeTab === 'standard' ? "搜索企业资料、规范、PPT..." : "搜索国家政策、行业标准、部委发文..."}
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black focus:ring-2 focus:ring-blue-500 outline-none"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-          <button className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-xl text-xs font-black text-slate-600 hover:bg-slate-50">
-            <Filter className="w-4 h-4" />
-            分类筛选
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {(activeTab === 'standard' ? MOCK_KNOWLEDGE : MOCK_POLICIES).filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase())).map((item) => (
-            <div key={item.id} className="group bg-white rounded-3xl border border-slate-200 overflow-hidden hover:border-slate-900 hover:shadow-2xl transition-all duration-500 flex flex-col">
-              <div className="p-6 space-y-4 flex-1">
-                <div className="flex justify-between items-start">
-                  <div className={`p-3 rounded-xl ${
-                    item.type === 'POLICY' ? 'bg-red-50 text-red-600' :
-                    item.type === 'PDF' ? 'bg-amber-50 text-amber-600' : 
-                    item.type === 'URL' ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-600'
-                  }`}>
-                    {item.type === 'POLICY' ? <BookMarked className="w-6 h-6" /> : <FileText className="w-6 h-6" />}
-                  </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-blue-600"><Download className="w-4 h-4" /></button>
-                    <button className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="font-black text-slate-900 group-hover:text-blue-600 transition-colors line-clamp-2 min-h-[3rem] leading-tight">
-                    {item.name}
-                  </h4>
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest border border-slate-100 px-2 py-0.5 rounded-full">{item.domain}</span>
-                    {item.type === 'POLICY' && <span className="text-[9px] font-black text-red-500 bg-red-50 px-2 py-0.5 rounded-full">{(item as PolicyItem).authority}</span>}
-                  </div>
-                </div>
-              </div>
-
-              <div className="px-6 py-4 border-t border-slate-50 flex items-center justify-between bg-slate-50/30">
-                <div className="flex flex-col">
-                   <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">更新时间</span>
-                   <span className="text-[11px] font-black text-slate-900 tabular-nums">{item.updateTime}</span>
-                </div>
-                <button 
-                  onClick={() => item.type === 'POLICY' ? handleAnalyzePolicy(item as PolicyItem) : null}
-                  className={`text-xs font-black flex items-center gap-1 ${item.type === 'POLICY' ? 'text-red-600 hover:text-red-800' : 'text-blue-600 hover:text-blue-800'}`}
-                >
-                  {item.type === 'POLICY' ? <Sparkles className="w-3.5 h-3.5" /> : null}
-                  {item.type === 'POLICY' ? 'AI 深度解析' : '内容预览'}
-                </button>
-              </div>
-            </div>
-          ))}
+        <div className="flex bg-slate-100 p-1 rounded-xl">
+           <button 
+             onClick={() => setViewMode('standard')}
+             className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${viewMode === 'standard' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}
+           >
+             资产库
+           </button>
+           <button 
+             onClick={() => setViewMode('policy')}
+             className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${viewMode === 'policy' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-400'}`}
+           >
+             政策库
+           </button>
+           <button 
+             onClick={() => setViewMode('recycle')}
+             className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${viewMode === 'recycle' ? 'bg-white text-amber-600 shadow-sm' : 'text-slate-400'}`}
+           >
+             回收站
+           </button>
+           <button 
+             onClick={() => setViewMode('audit')}
+             className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${viewMode === 'audit' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-400'}`}
+           >
+             操作日志
+           </button>
         </div>
       </div>
+
+      {/* 视图内容区 */}
+      <div className="flex-1 bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        {viewMode === 'audit' ? (
+          /* 审计日志视图 (KA-21 to KA-24) */
+          <div className="flex-1 overflow-y-auto p-8">
+            <div className="flex items-center justify-between mb-8">
+               <h3 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                 <History className="w-5 h-5 text-blue-600" /> 操作审计报告
+               </h3>
+               <button className="text-xs font-black text-blue-600 flex items-center gap-2 bg-blue-50 px-4 py-2 rounded-xl">
+                 <Download className="w-4 h-4" /> 导出审计报表 (PDF)
+               </button>
+            </div>
+            <div className="space-y-4">
+              {logs.length > 0 ? logs.map(log => (
+                <div key={log.id} className="p-6 bg-slate-50 border border-slate-100 rounded-2xl flex items-start gap-6 hover:bg-white hover:shadow-md transition-all">
+                   <div className={`p-3 rounded-xl ${log.action === 'DELETE' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
+                      <ClipboardList className="w-5 h-5" />
+                   </div>
+                   <div className="flex-1">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-xs font-black text-slate-400 uppercase tracking-widest">{log.timestamp}</span>
+                        <span className="text-[10px] font-bold text-slate-400 italic">IP: {log.ip}</span>
+                      </div>
+                      <p className="font-bold text-slate-800">
+                        <span className="text-blue-600">@{log.userName}</span> 
+                        {log.action === 'UPLOAD' && ' 上传了文件 '}
+                        {log.action === 'DELETE' && ' 将文件移入了回收站 '}
+                        {log.action === 'RESTORE' && ' 从回收站恢复了文件 '}
+                        {log.action === 'MOVE' && ' 移动了文件层级 '}
+                        {log.action === 'PERMANENT_DELETE' && ' 永久删除了 '}
+                        <span className="underline font-black decoration-slate-200">“{log.targetName}”</span>
+                      </p>
+                      {(log.beforeState || log.afterState) && (
+                        <div className="mt-2 flex items-center gap-2 text-[10px] font-black uppercase text-slate-400">
+                           <span className="bg-slate-200 px-2 py-0.5 rounded">{log.beforeState}</span>
+                           <ChevronRight className="w-3 h-3" />
+                           <span className="bg-blue-600 text-white px-2 py-0.5 rounded">{log.afterState}</span>
+                        </div>
+                      )}
+                   </div>
+                </div>
+              )) : (
+                <div className="py-20 text-center text-slate-300">
+                   <Info className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                   <p className="font-black uppercase tracking-widest">No Logs Found</p>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          /* 文件/资产视图 */
+          <>
+            <div className="px-8 py-4 border-b border-slate-50 flex items-center justify-between bg-slate-50/20">
+              <div className="flex items-center text-sm font-bold">
+                 <button onClick={() => setCurrentFolderId(null)} className="hover:text-blue-600 text-slate-400">根目录</button>
+                 {breadcrumbs.map(f => (
+                   <React.Fragment key={f.id}>
+                     <ChevronRight className="w-4 h-4 text-slate-200 mx-1" />
+                     <button onClick={() => setCurrentFolderId(f.id)} className="text-slate-900">{f.name}</button>
+                   </React.Fragment>
+                 ))}
+              </div>
+              <div className="flex gap-3">
+                 {viewMode === 'standard' && (
+                   <>
+                    <button onClick={() => fileInputRef.current?.click()} className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-lg shadow-blue-100">
+                      <Upload className="w-4 h-4" /> 上传资产
+                    </button>
+                    <button onClick={() => {/* 新建文件夹逻辑 */}} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-900 rounded-xl text-xs font-black flex items-center gap-2">
+                      <FolderPlus className="w-4 h-4 text-blue-600" /> 新建目录
+                    </button>
+                   </>
+                 )}
+                 {viewMode === 'recycle' && (
+                   <button onClick={() => {/* 清空逻辑 */}} className="px-5 py-2.5 bg-red-50 text-red-600 border border-red-100 rounded-xl text-xs font-black flex items-center gap-2">
+                     <Trash className="w-4 h-4" /> 清空回收站
+                   </button>
+                 )}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              <table className="w-full text-left">
+                <thead className="sticky top-0 bg-white border-b border-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest z-10">
+                  <tr>
+                    <th className="px-8 py-5">名称</th>
+                    <th className="px-4 py-5">{viewMode === 'recycle' ? '删除时间' : '更新时间'}</th>
+                    <th className="px-4 py-5">大小</th>
+                    <th className="px-8 py-5 text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {visibleItems.map(item => (
+                    <tr key={item.id} className="group hover:bg-slate-50/50 cursor-pointer transition-colors" onClick={() => item.type === 'FOLDER' ? setCurrentFolderId(item.id) : setPreviewItem(item)}>
+                      <td className="px-8 py-5">
+                        <div className="flex items-center gap-4">
+                          {getIcon(item.type)}
+                          <div>
+                            <p className="font-bold text-slate-900 group-hover:text-blue-600 transition-colors">{item.name}</p>
+                            <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mt-0.5">{item.domain}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-5 text-xs text-slate-400">{viewMode === 'recycle' ? item.deletedAt : item.updateTime}</td>
+                      <td className="px-4 py-5 text-xs text-slate-400">{item.size}</td>
+                      <td className="px-8 py-5 text-right">
+                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {viewMode === 'standard' && (
+                              <>
+                                <button onClick={(e) => {e.stopPropagation(); setMovingItem(item);}} className="p-2 hover:bg-blue-50 text-blue-600 rounded-lg" title="移动"><ArrowLeftRight className="w-4 h-4" /></button>
+                                <button onClick={(e) => {e.stopPropagation(); handleSoftDelete(item);}} className="p-2 hover:bg-red-50 text-red-500 rounded-lg" title="删除"><Trash2 className="w-4 h-4" /></button>
+                              </>
+                            )}
+                            {viewMode === 'recycle' && (
+                              <>
+                                <button onClick={(e) => {e.stopPropagation(); handleRestore(item);}} className="p-2 hover:bg-emerald-50 text-emerald-600 rounded-lg" title="恢复"><RotateCcw className="w-4 h-4" /></button>
+                                <button onClick={(e) => {e.stopPropagation(); handlePermanentDelete(item);}} className="p-2 hover:bg-red-50 text-red-500 rounded-lg" title="永久删除"><Trash className="w-4 h-4" /></button>
+                              </>
+                            )}
+                         </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {visibleItems.length === 0 && (
+                <div className="py-32 flex flex-col items-center opacity-20">
+                   <AlertCircle className="w-16 h-16 mb-4" />
+                   <p className="font-black uppercase tracking-widest">Directory Empty</p>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* 移动文件弹窗 (KA-31) */}
+      {movingItem && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
+           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                 <h4 className="font-black text-slate-900">移动资产至...</h4>
+                 <button onClick={() => setMovingItem(null)}><X className="w-5 h-5 text-slate-400" /></button>
+              </div>
+              <div className="p-6 space-y-2 max-h-80 overflow-y-auto">
+                 <button onClick={() => handleMoveTo(null)} className="w-full text-left p-4 rounded-xl border border-dashed border-slate-200 hover:bg-slate-50 font-bold text-sm">根目录</button>
+                 {items.filter(i => i.type === 'FOLDER' && i.id !== movingItem.id).map(folder => (
+                   <button key={folder.id} onClick={() => handleMoveTo(folder.id)} className="w-full text-left p-4 rounded-xl border border-slate-100 hover:bg-blue-50 flex items-center gap-3 transition-all">
+                      <Folder className="w-5 h-5 text-blue-500" />
+                      <span className="font-bold text-slate-700">{folder.name}</span>
+                   </button>
+                 ))}
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* 上传通知 */}
+      {uploadProgress !== null && (
+        <div className="fixed bottom-8 right-8 z-[120] bg-slate-900 text-white p-6 rounded-2xl shadow-2xl w-80 animate-in slide-in-from-right">
+           <div className="flex justify-between items-center mb-4">
+              <span className="text-[10px] font-black uppercase tracking-widest">Uploading Asset</span>
+              <Loader2 className="w-4 h-4 animate-spin" />
+           </div>
+           <div className="h-1 bg-white/10 rounded-full overflow-hidden mb-2">
+              <div className="h-full bg-blue-500 transition-all" style={{ width: `${uploadProgress}%` }} />
+           </div>
+           <p className="text-[10px] font-bold text-slate-400">正在分析文档结构并生成唯一索引...</p>
+        </div>
+      )}
     </div>
   );
 };
 
 export default KnowledgeBase;
-
-// Re-importing X as it was missed in the initial component block
-const X = ({ className }: { className?: string }) => (
-  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-);

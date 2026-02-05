@@ -1,15 +1,15 @@
 
-import React, { useState, useEffect } from 'react';
-import { Sparkles, Layout, Check, Loader2, Database, X, FileText, Globe, Search, Settings2, Plus, Edit3, Save, Upload } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Sparkles, Layout, Check, Loader2, Database, X, FileText, Globe, Search, Settings2, Plus, Edit3, Save, Upload, History, Calendar, ExternalLink, CheckCircle2, ChevronRight } from 'lucide-react';
 import { geminiService } from '../services/geminiService.ts';
-import { DEFAULT_TEMPLATES, MOCK_KNOWLEDGE } from '../constants.tsx';
-import { KnowledgeItem, Template } from '../types.ts';
+import { DEFAULT_TEMPLATES, MOCK_KNOWLEDGE, MOCK_PROJECTS } from '../constants.tsx';
+import { KnowledgeItem, Template, Project } from '../types.ts';
 
 const Workbench: React.FC = () => {
-  // ... 保持原有逻辑不变
   const [demand, setDemand] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [proposalTitle, setProposalTitle] = useState('未命名方案');
   
   const [isKBModalOpen, setIsKBModalOpen] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<KnowledgeItem[]>([]);
@@ -20,6 +20,13 @@ const Workbench: React.FC = () => {
   const [isEditingTemplate, setIsEditingTemplate] = useState(false);
   const [editingStructure, setEditingStructure] = useState<string[]>([]);
   const [newTemplateName, setNewTemplateName] = useState('');
+
+  // 历史记录状态
+  const [generationHistory, setGenerationHistory] = useState<Project[]>(MOCK_PROJECTS);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
+  // 引用隐藏的文件输入框
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentTemplate = templates.find(t => t.id === selectedTemplateId) || templates[0];
 
@@ -33,12 +40,32 @@ const Workbench: React.FC = () => {
     
     try {
       const output = await geminiService.generateSolution(finalPrompt, context);
-      setResult(output || '');
+      const text = output || '';
+      setResult(text);
+
+      // 自动保存到历史记录
+      const newRecord: Project = {
+        id: `gen-${Date.now()}`,
+        name: proposalTitle === '未命名方案' ? `${currentTemplate.name}-${new Date().toLocaleTimeString()}` : proposalTitle,
+        status: '已完成',
+        progress: 100,
+        lastModified: new Date().toISOString().split('T')[0],
+        author: 'Ginny Xie'
+      };
+      setGenerationHistory(prev => [newRecord, ...prev]);
+
     } catch (e) {
       alert('生成失败，请重试');
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const loadHistoryItem = (item: Project) => {
+    setProposalTitle(item.name);
+    // 在真实应用中，这里会通过 ID 请求对应的 Content，此处模拟加载
+    setResult(`这是从历史记录加载的方案：【${item.name}】\n\n此处演示历史数据回显功能。在实际系统中，我们会从数据库调取 "${item.id}" 对应的完整 Markdown 内容。`);
+    setIsHistoryOpen(false);
   };
 
   const toggleFileSelection = (item: KnowledgeItem) => {
@@ -47,6 +74,40 @@ const Workbench: React.FC = () => {
         ? prev.filter(f => f.id !== item.id) 
         : [...prev, item]
     );
+  };
+
+  const handleLocalUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const newItems: KnowledgeItem[] = Array.from(files).map(file => {
+      const extension = file.name.split('.').pop()?.toUpperCase() as any;
+      const typeMap: Record<string, KnowledgeItem['type']> = {
+        'PDF': 'PDF',
+        'DOCX': 'DOCX',
+        'PPTX': 'PPTX',
+        'XLSX': 'XLSX'
+      };
+
+      return {
+        id: `local-${Math.random().toString(36).substr(2, 9)}`,
+        name: file.name,
+        type: typeMap[extension] || 'DOCX',
+        domain: '本地上传',
+        scenario: '即时参考',
+        version: 'V1.0',
+        updateTime: new Date().toISOString().split('T')[0],
+        securityLevel: '内部',
+        size: `${(file.size / (1024 * 1024)).toFixed(2)}MB`
+      };
+    });
+
+    setSelectedFiles(prev => [...prev, ...newItems]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleEditTemplate = () => {
@@ -62,24 +123,63 @@ const Workbench: React.FC = () => {
     setIsEditingTemplate(false);
   };
 
-  const handleAddCustomTemplate = () => {
-    const newId = `custom-${Date.now()}`;
-    const newT: Template = {
-      id: newId,
-      name: newTemplateName || '自定义模版',
-      description: '用户自定义业务模版',
-      structure: ["1. 第一章节"],
-      isCustom: true
-    };
-    setTemplates([...templates, newT]);
-    setSelectedTemplateId(newId);
-    setNewTemplateName('');
-    setEditingStructure(newT.structure);
-    setIsEditingTemplate(true);
-  };
-
   return (
-    <div className="h-[calc(100vh-8rem)] flex gap-6">
+    <div className="h-[calc(100vh-8rem)] flex gap-6 relative overflow-hidden">
+      {/* 隐藏的文件输入框 */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleFileChange} 
+        multiple 
+        className="hidden" 
+        accept=".pdf,.docx,.pptx,.xlsx"
+      />
+
+      {/* 历史记录抽屉 (Right Drawer) */}
+      <div className={`fixed inset-y-0 right-0 z-[70] w-96 bg-white/80 backdrop-blur-xl border-l border-slate-200 shadow-2xl transform transition-transform duration-500 ease-out ${isHistoryOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="h-full flex flex-col">
+          <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-black text-slate-900">生成记录</h3>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">History Logs</p>
+            </div>
+            <button onClick={() => setIsHistoryOpen(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-100">
+            {generationHistory.map((project) => (
+              <button 
+                key={project.id} 
+                onClick={() => loadHistoryItem(project)}
+                className="w-full p-6 text-left hover:bg-slate-50 transition-colors flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="p-2.5 bg-slate-100 rounded-xl group-hover:bg-blue-600 group-hover:text-white transition-all shrink-0">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="font-bold text-slate-900 truncate flex items-center gap-2">
+                      {project.name}
+                      {project.status === '已完成' && <CheckCircle2 className="w-3 h-3 text-emerald-500" />}
+                    </h4>
+                    <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-400 font-medium">
+                      <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {project.lastModified}</span>
+                    </div>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-blue-600 transition-colors" />
+              </button>
+            ))}
+          </div>
+          <div className="p-6 bg-slate-50 border-t border-slate-100">
+            <p className="text-[10px] text-slate-400 font-bold text-center italic tracking-tight">
+              系统仅保留最近 50 条生成记录。如需导出，请在下方点击全量同步。
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* KB Selection Modal */}
       {isKBModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-md p-4">
@@ -105,8 +205,11 @@ const Workbench: React.FC = () => {
                   onChange={(e) => setKbSearchTerm(e.target.value)}
                 />
               </div>
-              <button className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all flex items-center gap-2">
-                <Upload className="w-4 h-4" /> 本地上传
+              <button 
+                onClick={handleLocalUploadClick}
+                className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold hover:bg-slate-50 transition-all flex items-center gap-2"
+              >
+                <Upload className="w-4 h-4 text-blue-600" /> 本地上传
               </button>
             </div>
 
@@ -140,8 +243,8 @@ const Workbench: React.FC = () => {
         </div>
       )}
 
-      {/* Sidebar - Redesigned Linear Workflow */}
-      <div className="w-80 flex flex-col gap-5 overflow-y-auto pr-1">
+      {/* Sidebar - Linear Workflow */}
+      <div className="w-80 flex flex-col gap-5 overflow-y-auto pr-1 shrink-0">
         
         {/* Step 1: Resource Selection */}
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
@@ -182,9 +285,6 @@ const Workbench: React.FC = () => {
               <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px] font-black">2</div>
               <h3 className="font-black text-slate-900 text-xs">选择/编辑模版</h3>
             </div>
-            <button className="text-[10px] font-bold text-blue-600 hover:bg-blue-50 px-2 py-1 rounded transition-all flex items-center gap-1">
-              <Plus className="w-3 h-3" /> 自定义
-            </button>
           </div>
           <div className="space-y-2">
             <select 
@@ -203,9 +303,9 @@ const Workbench: React.FC = () => {
                   <Edit3 className="w-3 h-3" /> 编辑结构
                 </button>
               </div>
-              <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+              <div className="space-y-1 max-h-32 overflow-y-auto pr-1 text-[10px] text-slate-600 font-medium">
                 {currentTemplate.structure.map((s, i) => (
-                  <div key={i} className="text-[10px] text-slate-600 font-medium flex items-center gap-2">
+                  <div key={i} className="flex items-center gap-2">
                     <div className="w-1 h-1 bg-blue-400 rounded-full" />
                     {s}
                   </div>
@@ -216,15 +316,15 @@ const Workbench: React.FC = () => {
         </div>
 
         {/* Step 3: Requirements */}
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4 flex-1 flex flex-col">
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4 flex-1 flex flex-col min-h-0">
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px] font-black">3</div>
             <h3 className="font-black text-slate-900 text-xs">具体业务需求</h3>
           </div>
-          <div className="flex-1 flex flex-col gap-4">
+          <div className="flex-1 flex flex-col gap-4 min-h-0">
             <textarea 
               className="flex-1 w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-medium focus:ring-2 focus:ring-blue-500 outline-none resize-none leading-relaxed"
-              placeholder="请在此描述本次方案的改写重点，如：重点突出在政务大厅场景下的语义识别准确率..."
+              placeholder="请在此描述本次方案的改写重点..."
               value={demand}
               onChange={(e) => setDemand(e.target.value)}
             />
@@ -244,7 +344,7 @@ const Workbench: React.FC = () => {
       <div className="flex-1 flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden relative">
         {/* Template Editor Overlay */}
         {isEditingTemplate && (
-          <div className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm p-12 flex flex-col animate-in fade-in duration-300">
+          <div className="absolute inset-0 z-20 bg-white/95 backdrop-blur-sm p-12 flex flex-col animate-in fade-in duration-300 overflow-y-auto">
             <div className="max-w-xl mx-auto w-full space-y-8">
               <div className="flex justify-between items-center">
                 <h3 className="text-2xl font-black text-slate-900 tracking-tight">编辑模版结构：{currentTemplate.name}</h3>
@@ -280,12 +380,12 @@ const Workbench: React.FC = () => {
                   <Plus className="w-4 h-4" /> 添加新章节
                 </button>
               </div>
-              <div className="flex gap-4 pt-4">
+              <div className="flex gap-4 pt-4 pb-12">
                 <button 
                   onClick={handleSaveTemplate}
                   className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 hover:bg-blue-700 shadow-xl shadow-blue-200"
                 >
-                  <Save className="w-5 h-5" /> 保存并应用到本次生成
+                  <Save className="w-5 h-5" /> 保存并应用
                 </button>
               </div>
             </div>
@@ -299,11 +399,26 @@ const Workbench: React.FC = () => {
               <FileText className="w-5 h-5" />
             </div>
             <div>
-              <input type="text" defaultValue="未命名方案" className="bg-transparent font-black text-slate-900 outline-none border-b-2 border-transparent focus:border-blue-500 px-1 text-sm" />
-              <p className="text-[10px] font-bold text-slate-400 mt-0.5">模版: {currentTemplate.name} · 参考: {selectedFiles.length} 项</p>
+              <input 
+                type="text" 
+                value={proposalTitle}
+                onChange={(e) => setProposalTitle(e.target.value)}
+                className="bg-transparent font-black text-slate-900 outline-none border-b-2 border-transparent focus:border-blue-500 px-1 text-sm" 
+              />
+              <p className="text-[10px] font-bold text-slate-400 mt-0.5 uppercase tracking-tighter">Template: {currentTemplate.name} · Ref: {selectedFiles.length} Docs</p>
             </div>
           </div>
           <div className="flex gap-2">
+            <button 
+              onClick={() => setIsHistoryOpen(true)}
+              className="px-4 py-2 bg-white border border-slate-200 text-slate-900 text-xs font-black rounded-xl hover:bg-slate-50 transition-all flex items-center gap-2 relative"
+            >
+              <History className="w-4 h-4" />
+              历史记录
+              {generationHistory.length > MOCK_PROJECTS.length && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full animate-ping"></span>
+              )}
+            </button>
             <button className="px-6 py-2 bg-slate-900 text-white text-xs font-black rounded-xl hover:bg-black transition-all shadow-lg flex items-center gap-2">
               <Settings2 className="w-4 h-4" /> 导出 Word
             </button>
@@ -324,22 +439,6 @@ const Workbench: React.FC = () => {
                   逻辑严密、表达专业且符合{currentTemplate.name}规范的高质量方案。
                 </p>
               </div>
-              <div className="flex gap-4">
-                <div className="flex flex-col items-center gap-1">
-                  <div className={`w-3 h-3 rounded-full ${selectedFiles.length > 0 ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                  <span className="text-[10px] font-bold text-slate-400">参考资料</span>
-                </div>
-                <div className="w-8 h-px bg-slate-200 mt-1.5" />
-                <div className="flex flex-col items-center gap-1">
-                  <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                  <span className="text-[10px] font-bold text-slate-400">选择模版</span>
-                </div>
-                <div className="w-8 h-px bg-slate-200 mt-1.5" />
-                <div className="flex flex-col items-center gap-1">
-                  <div className={`w-3 h-3 rounded-full ${demand.length > 10 ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                  <span className="text-[10px] font-bold text-slate-400">业务需求</span>
-                </div>
-              </div>
             </div>
           ) : isGenerating ? (
             <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-24 space-y-10 animate-pulse">
@@ -352,12 +451,7 @@ const Workbench: React.FC = () => {
               </div>
               <div className="text-center space-y-3">
                 <h4 className="text-2xl font-black text-slate-900 tracking-tight uppercase">AI Engine Processing</h4>
-                <div className="flex flex-col items-center gap-2">
-                   <p className="text-slate-500 font-medium text-sm">正在按照《{currentTemplate.name}》结构进行深度重组...</p>
-                   <div className="h-1 w-48 bg-slate-100 rounded-full overflow-hidden mt-2">
-                     <div className="h-full bg-blue-600 animate-[progress_2s_ease-in-out_infinite]" style={{width: '60%'}}></div>
-                   </div>
-                </div>
+                <p className="text-slate-500 font-medium text-sm">正在按照《{currentTemplate.name}》结构进行深度重组...</p>
               </div>
             </div>
           ) : (
