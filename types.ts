@@ -9,7 +9,7 @@ export enum AppView {
 export interface KnowledgeItem {
   id: string;
   name: string;
-  type: 'PDF' | 'DOCX' | 'PPTX' | 'URL' | 'XLSX' | 'POLICY' | 'FOLDER' | 'TXT' | 'JPG' | 'PNG';
+  type: 'PDF' | 'DOCX' | 'PPTX' | 'URL' | 'XLSX' | 'POLICY' | 'FOLDER' | 'TXT' | 'JPG' | 'PNG' | 'MP4';
   domain: string;
   scenario: string;
   version: string;
@@ -21,38 +21,40 @@ export interface KnowledgeItem {
   parentFolderId?: string; 
   author?: string;
   content?: string; 
-  // 回收站与生命周期管理
   isDeleted?: boolean;
   deletedAt?: string;
   originalParentId?: string;
+  parseStatus?: 'PENDING' | 'PARSING' | 'SUCCESS' | 'FAILED'; // 解析状态
+}
+
+// Added Project interface to fix import error in constants.tsx
+export interface Project {
+  id: string;
+  name: string;
+  status: string;
+  progress: number;
+  lastModified: string;
+  author: string;
+}
+
+export interface PolicyItem extends KnowledgeItem {
+  authority: string;
+  effectiveness: string;
+  tags: string[];
+  recommendReason: string;
 }
 
 export interface AuditLog {
   id: string;
   userId: string;
   userName: string;
-  action: 'UPLOAD' | 'DELETE' | 'MOVE' | 'RENAME' | 'DOWNLOAD' | 'RESTORE' | 'PERMANENT_DELETE';
+  action: 'UPLOAD' | 'DELETE' | 'MOVE' | 'RENAME' | 'DOWNLOAD' | 'RESTORE' | 'PERMANENT_DELETE' | 'EMPTY_RECYCLE_BIN';
   targetId: string;
   targetName: string;
   timestamp: string;
   beforeState?: string;
   afterState?: string;
   ip?: string;
-}
-
-export interface FolderItem {
-  id: string;
-  name: string;
-  parentFolderId?: string;
-  updateTime: string;
-  author: string;
-}
-
-export interface PolicyItem extends KnowledgeItem {
-  authority: string; 
-  effectiveness: '法律' | '行政法规' | '部门规章' | '地方性法规';
-  tags: string[];
-  recommendReason?: string;
 }
 
 export interface Template {
@@ -63,27 +65,33 @@ export interface Template {
   isCustom?: boolean;
 }
 
-export interface Project {
-  id: string;
-  name: string;
-  status: '进行中' | '已完成' | '待审核';
-  progress: number;
-  lastModified: string;
-  author: string;
+export interface WorkbenchState {
+  demand: string;
+  result: string | null;
+  proposalTitle: string;
+  selectedFiles: KnowledgeItem[];
+  selectedTemplateId: string;
+  templates: Template[];
 }
 
-export interface EvaluationResult {
-  scores: {
-    policy: number;
-    requirement: number;
-    product: number;
-    logic: number;
-    business: number;
-  };
-  totalScore: number;
-  suggestions: {
-    dimension: string;
-    advice: string;
-    basis: string;
-  }[];
+export interface KBState {
+  viewMode: 'standard' | 'policy' | 'recycle' | 'audit';
+  searchTerm: string;
+  currentFolderId: string | null;
+  items: KnowledgeItem[];
+  logs: AuditLog[];
+}
+
+export interface EvaluationState {
+  content: string;
+  standard: string;
+  result: any | null;
+}
+
+export interface AppPersistenceState {
+  lastUpdated: number;
+  currentView: AppView;
+  workbench: WorkbenchState;
+  kb: KBState;
+  evaluation: EvaluationState;
 }

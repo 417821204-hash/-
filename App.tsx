@@ -1,50 +1,115 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar.tsx';
 import KnowledgeBase from './components/KnowledgeBase.tsx';
 import Workbench from './components/Workbench.tsx';
 import Evaluation from './components/Evaluation.tsx';
 import Settings from './components/Settings.tsx';
-import { AppView } from './types.ts';
+import { AppView, AppPersistenceState, KnowledgeItem, AuditLog } from './types.ts';
+import { MOCK_KNOWLEDGE, DEFAULT_TEMPLATES } from './constants.tsx';
+import { CloudCheck, CloudSync, ShieldCheck } from 'lucide-react';
+
+const STORAGE_KEY = 'WHALE_SOLUTION_V1_STATE';
+
+const INITIAL_STATE: AppPersistenceState = {
+  lastUpdated: Date.now(),
+  currentView: AppView.WORKBENCH,
+  workbench: {
+    demand: '',
+    result: null,
+    proposalTitle: '未命名方案',
+    selectedFiles: [],
+    selectedTemplateId: DEFAULT_TEMPLATES[0].id,
+    templates: DEFAULT_TEMPLATES
+  },
+  kb: {
+    viewMode: 'standard',
+    searchTerm: '',
+    currentFolderId: null,
+    items: [
+      { id: 'f-1', name: '2026年度投标素材', type: 'FOLDER', domain: '通用', scenario: '管理', version: '-', updateTime: '2026-02-01', securityLevel: '内部', size: '-', author: '系统' },
+      ...MOCK_KNOWLEDGE
+    ],
+    logs: []
+  },
+  evaluation: {
+    content: '',
+    standard: '',
+    result: null
+  }
+};
 
 const App: React.FC = () => {
-  const [currentView, setCurrentView] = useState<AppView>(AppView.WORKBENCH);
+  const [state, setState] = useState<AppPersistenceState>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? JSON.parse(saved) : INITIAL_STATE;
+  });
+
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setIsSaving(true);
+    const timeout = setTimeout(() => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      setIsSaving(false);
+    }, 500);
+    return () => clearTimeout(timeout);
+  }, [state]);
+
+  const updateWorkbench = (patch: Partial<AppPersistenceState['workbench']>) => {
+    setState(prev => ({ ...prev, workbench: { ...prev.workbench, ...patch } }));
+  };
+
+  const updateKB = (patch: Partial<AppPersistenceState['kb']>) => {
+    setState(prev => ({ ...prev, kb: { ...prev.kb, ...patch } }));
+  };
+
+  const updateEvaluation = (patch: Partial<AppPersistenceState['evaluation']>) => {
+    setState(prev => ({ ...prev, evaluation: { ...prev.evaluation, ...patch } }));
+  };
 
   const renderView = () => {
-    switch (currentView) {
+    switch (state.currentView) {
       case AppView.WORKBENCH:
-        return <Workbench />;
+        return <Workbench state={state.workbench} onUpdate={updateWorkbench} onUpdateKB={updateKB} kbItems={state.kb.items} />;
       case AppView.KNOWLEDGE_BASE:
-        return <KnowledgeBase />;
+        return <KnowledgeBase state={state.kb} onUpdate={updateKB} />;
       case AppView.EVALUATION:
-        return <Evaluation />;
+        return <Evaluation state={state.evaluation} onUpdate={updateEvaluation} />;
       case AppView.SETTINGS:
         return <Settings />;
       default:
-        return <Workbench />;
+        return <Workbench state={state.workbench} onUpdate={updateWorkbench} onUpdateKB={updateKB} kbItems={state.kb.items} />;
     }
   };
 
   return (
     <div className="min-h-screen flex bg-slate-50 text-slate-900">
-      <Sidebar currentView={currentView} onViewChange={setCurrentView} />
+      <Sidebar 
+        currentView={state.currentView} 
+        onViewChange={(view) => setState(prev => ({ ...prev, currentView: view }))} 
+      />
       
       <main className="flex-1 ml-64 p-8">
         <div className="max-w-7xl mx-auto">
-          {/* Header Action Bar */}
           <div className="flex justify-between items-center mb-6">
             <div className="flex gap-4">
-              <span className="text-[10px] font-black text-slate-400 bg-white border border-slate-200 px-3 py-1 rounded-full uppercase tracking-[0.2em]">
-                NODE: NC-01-PREMIUM
-              </span>
+              <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1 rounded-full shadow-sm">
+                <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                  状态: {isSaving ? '同步中...' : '已加密同步'}
+                </span>
+                <div className={`w-1.5 h-1.5 rounded-full ${isSaving ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'}`} />
+              </div>
               <span className="text-[10px] font-black text-emerald-500 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-full uppercase tracking-[0.2em]">
-                AI CLUSTER READY
+                AI 引擎已就绪
               </span>
             </div>
+            
             <div className="flex items-center gap-4">
               <div className="flex -space-x-2">
                 {[1,2,3].map(i => (
-                  <img key={i} src={`https://picsum.photos/32/32?random=${i}`} className="w-8 h-8 rounded-full border-2 border-white shadow-sm" alt="team" />
+                  <img key={i} src={`https://picsum.photos/32/32?random=${i}`} className="w-8 h-8 rounded-full border-2 border-white shadow-sm" alt="用户" />
                 ))}
                 <div className="w-8 h-8 rounded-full bg-slate-100 border-2 border-white flex items-center justify-center text-[10px] font-bold text-slate-500">+12</div>
               </div>
